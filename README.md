@@ -255,8 +255,4 @@ Grafana dashboard auto-provisions at http://localhost:3000 with Docker Compose.
 | Container | Docker + Docker Compose |
 | CI | GitLab CI/CD |
 
----
 
-## 📄 License
-
-MIT
