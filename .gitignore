@@ -1,0 +1,45 @@
+# Build
+build/
+.gradle/
+out/
+bin/
+!gradle/wrapper/
+
+# IDE
+.idea/
+*.iml
+*.iws
+*.ipr
+.settings/
+.project
+.classpath
+.factorypath
+.vscode/
+
+# OS
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# Env / Secrets
+.env
+*.env.local
+application-local.yml
+
+# Logs
+*.log
+logs/
+
+# Models (binary — don't commit)
+models/*.onnx
+models/*.pkl
+
+# ML data
+ml/training_data.csv
+ml/*.csv
+ml/*.onnx
+
+# Docker volumes
+pgdata/
+promdata/
+grafanadata/

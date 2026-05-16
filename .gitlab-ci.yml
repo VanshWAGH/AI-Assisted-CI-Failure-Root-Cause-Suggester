@@ -1,0 +1,165 @@
+# =============================================================================
+# GitLab CI/CD Pipeline with Root-Cause Suggester Integration
+# =============================================================================
+# This pipeline demonstrates how to integrate the RootCause Suggester service
+# with your Java project's CI pipeline.
+#
+# Required CI/CD Variables (Settings → CI/CD → Variables):
+#   ROOTCAUSE_API_URL    - URL of your RootCause Suggester API
+#   ROOTCAUSE_API_TOKEN  - API authentication token
+#   GITLAB_TOKEN         - GitLab personal access token (for MR comments)
+# =============================================================================
+
+stages:
+  - build
+  - test
+  - analyze-failure
+
+variables:
+  GRADLE_OPTS: "-Dorg.gradle.daemon=false"
+  GRADLE_USER_HOME: "$CI_PROJECT_DIR/.gradle"
+
+# ─── Cache Gradle dependencies ──────────────────────────────────────────────
+.gradle-cache: &gradle-cache
+  cache:
+    key: "$CI_COMMIT_REF_SLUG"
+    paths:
+      - .gradle/caches
+      - .gradle/wrapper
+    policy: pull-push
+
+# ─── Build Stage ─────────────────────────────────────────────────────────────
+build:
+  stage: build
+  image: eclipse-temurin:17-jdk-alpine
+  <<: *gradle-cache
+  script:
+    - chmod +x gradlew
+    - ./gradlew assemble --no-daemon
+  artifacts:
+    paths:
+      - build/libs/
+    expire_in: 1 hour
+
+# ─── Test Stage ──────────────────────────────────────────────────────────────
+test:
+  stage: test
+  image: eclipse-temurin:17-jdk-alpine
+  <<: *gradle-cache
+  script:
+    - chmod +x gradlew
+    - ./gradlew test --no-daemon
+  artifacts:
+    when: always
+    paths:
+      - build/reports/tests/
+      - build/test-results/
+    reports:
+      junit: build/test-results/test/TEST-*.xml
+    expire_in: 7 days
+
+# ─── Failure Analysis Stage ─────────────────────────────────────────────────
+# This stage runs ONLY when a previous stage fails.
+# It sends the test reports + console log to the RootCause API and posts
+# the result as a comment on the Merge Request.
+# ─────────────────────────────────────────────────────────────────────────────
+analyze-failure:
+  stage: analyze-failure
+  when: on_failure
+  image: alpine:3.19
+  needs:
+    - job: test
+      artifacts: true
+  before_script:
+    - apk add --no-cache curl jq
+  script:
+    - |
+      echo "🔍 Analyzing CI failure..."
+      
+      # Collect log content from test reports
+      LOG_CONTENT=""
+      if [ -d "build/test-results/test" ]; then
+        LOG_CONTENT=$(cat build/test-results/test/TEST-*.xml 2>/dev/null | head -c 50000 || echo "")
+      fi
+      
+      # If no test results, use a placeholder
+      if [ -z "$LOG_CONTENT" ]; then
+        LOG_CONTENT="CI pipeline failed. No detailed test results available. Stage: test, Pipeline: ${CI_PIPELINE_ID}"
+      fi
+      
+      # Escape for JSON
+      LOG_CONTENT_ESCAPED=$(echo "$LOG_CONTENT" | jq -Rs '.')
+      
+      # Call RootCause Suggester API
+      RESPONSE=$(curl -s -w "\n%{http_code}" -X POST \
+        "${ROOTCAUSE_API_URL}/api/v1/analyze/raw" \
+        -H "Content-Type: application/json" \
+        -H "Authorization: Bearer ${ROOTCAUSE_API_TOKEN}" \
+        -d "{
+          \"projectName\": \"${CI_PROJECT_PATH}\",
+          \"pipelineRef\": \"${CI_PIPELINE_ID}\",
+          \"branchName\": \"${CI_COMMIT_REF_NAME}\",
+          \"commitSha\": \"${CI_COMMIT_SHA}\",
+          \"ciPlatform\": \"GITLAB\",
+          \"logContent\": ${LOG_CONTENT_ESCAPED}
+        }" 2>/dev/null)
+      
+      HTTP_CODE=$(echo "$RESPONSE" | tail -1)
+      BODY=$(echo "$RESPONSE" | sed '$d')
+      
+      if [ "$HTTP_CODE" != "200" ]; then
+        echo "⚠️  RootCause API returned HTTP $HTTP_CODE"
+        echo "$BODY"
+        exit 0  # Don't fail the pipeline because of analysis
+      fi
+      
+      echo "✅ Analysis Result:"
+      echo "$BODY" | jq .
+      
+      # Extract fields
+      FAILURE_TYPE=$(echo "$BODY" | jq -r '.failureType // "unknown"')
+      CONFIDENCE=$(echo "$BODY" | jq -r '.confidence // 0')
+      EXPLANATION=$(echo "$BODY" | jq -r '.explanation // "N/A"')
+      SUGGESTED_ACTION=$(echo "$BODY" | jq -r '.suggestedAction // "N/A"')
+      CLASSIFIER_MODE=$(echo "$BODY" | jq -r '.classifierMode // "N/A"')
+      PATTERN_NAME=$(echo "$BODY" | jq -r '.matchedPatternName // "N/A"')
+      CONFIDENCE_PCT=$(echo "$CONFIDENCE" | awk '{printf "%.0f", $1 * 100}')
+      
+      # Post as MR comment if this is a merge request pipeline
+      if [ -n "$CI_MERGE_REQUEST_IID" ]; then
+        echo "📝 Posting analysis to MR !${CI_MERGE_REQUEST_IID}..."
+        
+        COMMENT=$(cat <<EOF
+      ## 🔍 CI Failure Root-Cause Analysis
+      
+      | Field | Value |
+      |-------|-------|
+      | **Failure Type** | \`${FAILURE_TYPE}\` |
+      | **Confidence** | ${CONFIDENCE_PCT}% |
+      | **Classifier** | ${CLASSIFIER_MODE} |
+      | **Pattern** | ${PATTERN_NAME} |
+      
+      ### 📋 Explanation
+      
+      ${EXPLANATION}
+      
+      ### 💡 Suggested Action
+      
+      ${SUGGESTED_ACTION}
+      
+      ---
+      *Pipeline [#${CI_PIPELINE_ID}](${CI_PIPELINE_URL}) • Commit \`${CI_COMMIT_SHORT_SHA}\` • Generated by RootCause Suggester*
+      EOF
+      )
+        
+        curl -s -X POST \
+          "${CI_API_V4_URL}/projects/${CI_PROJECT_ID}/merge_requests/${CI_MERGE_REQUEST_IID}/notes" \
+          -H "PRIVATE-TOKEN: ${GITLAB_TOKEN}" \
+          --data-urlencode "body=${COMMENT}" \
+          > /dev/null 2>&1
+        
+        echo "✅ Analysis posted to MR !${CI_MERGE_REQUEST_IID}"
+      else
+        echo "ℹ️  Not a merge request pipeline — skipping MR comment"
+      fi
+  allow_failure: true

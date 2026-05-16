@@ -1,0 +1,38 @@
+spring:
+  datasource:
+    url: jdbc:h2:mem:testdb;DB_CLOSE_DELAY=-1;DB_CLOSE_ON_EXIT=FALSE
+    driver-class-name: org.h2.Driver
+    username: sa
+    password:
+
+  jpa:
+    hibernate:
+      ddl-auto: create-drop
+    show-sql: false
+    open-in-view: false
+    properties:
+      hibernate:
+        format_sql: false
+
+  flyway:
+    enabled: false
+
+  h2:
+    console:
+      enabled: false
+
+rootcause:
+  classifier:
+    default-mode: RULE_BASED
+    onnx:
+      enabled: false
+  gitlab:
+    api-url: http://localhost:9999
+    webhook-secret: test-secret
+    private-token: test-token
+  jenkins:
+    base-url: http://localhost:9998
+
+logging:
+  level:
+    com.rootcause: DEBUG

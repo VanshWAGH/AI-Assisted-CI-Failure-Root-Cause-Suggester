@@ -1,0 +1,75 @@
+version: '3.9'
+
+services:
+  # ─── PostgreSQL ────────────────────────────────────────
+  postgres:
+    image: postgres:16-alpine
+    container_name: rootcause-postgres
+    environment:
+      POSTGRES_DB: rootcause
+      POSTGRES_USER: rootcause
+      POSTGRES_PASSWORD: rootcause_secret
+    ports:
+      - "5432:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U rootcause"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  # ─── Root-Cause Suggester API ──────────────────────────
+  api:
+    build:
+      context: .
+      dockerfile: docker/Dockerfile
+    container_name: rootcause-api
+    ports:
+      - "8080:8080"
+    environment:
+      SPRING_DATASOURCE_URL: jdbc:postgresql://postgres:5432/rootcause
+      SPRING_DATASOURCE_USERNAME: rootcause
+      SPRING_DATASOURCE_PASSWORD: rootcause_secret
+      SPRING_PROFILES_ACTIVE: docker
+    depends_on:
+      postgres:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8080/actuator/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # ─── Prometheus ────────────────────────────────────────
+  prometheus:
+    image: prom/prometheus:v2.53.0
+    container_name: rootcause-prometheus
+    ports:
+      - "9090:9090"
+    volumes:
+      - ./docker/prometheus.yml:/etc/prometheus/prometheus.yml
+      - promdata:/prometheus
+    depends_on:
+      - api
+
+  # ─── Grafana ───────────────────────────────────────────
+  grafana:
+    image: grafana/grafana:11.1.0
+    container_name: rootcause-grafana
+    ports:
+      - "3000:3000"
+    environment:
+      GF_SECURITY_ADMIN_PASSWORD: admin
+      GF_USERS_ALLOW_SIGN_UP: "false"
+    volumes:
+      - ./docker/grafana/provisioning:/etc/grafana/provisioning
+      - ./docker/grafana/dashboards:/var/lib/grafana/dashboards
+      - grafanadata:/var/lib/grafana
+    depends_on:
+      - prometheus
+
+volumes:
+  pgdata:
+  promdata:
+  grafanadata:

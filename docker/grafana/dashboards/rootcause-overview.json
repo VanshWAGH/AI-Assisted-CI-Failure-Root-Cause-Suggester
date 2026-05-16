@@ -1,0 +1,180 @@
+{
+  "annotations": { "list": [] },
+  "editable": true,
+  "fiscalYearStartMonth": 0,
+  "graphTooltip": 1,
+  "links": [],
+  "panels": [
+    {
+      "title": "Failure Events (Total)",
+      "type": "stat",
+      "gridPos": { "h": 4, "w": 6, "x": 0, "y": 0 },
+      "targets": [
+        {
+          "expr": "sum(rootcause_job_failure_total)",
+          "legendFormat": "Total Failures"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "color": { "mode": "thresholds" },
+          "thresholds": {
+            "steps": [
+              { "color": "green", "value": null },
+              { "color": "yellow", "value": 50 },
+              { "color": "red", "value": 200 }
+            ]
+          }
+        }
+      }
+    },
+    {
+      "title": "Avg Confidence",
+      "type": "gauge",
+      "gridPos": { "h": 4, "w": 6, "x": 6, "y": 0 },
+      "targets": [
+        {
+          "expr": "avg(rootcause_model_confidence_sum / rootcause_model_confidence_count)",
+          "legendFormat": "Avg Confidence"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "min": 0,
+          "max": 1,
+          "thresholds": {
+            "steps": [
+              { "color": "red", "value": null },
+              { "color": "yellow", "value": 0.5 },
+              { "color": "green", "value": 0.75 }
+            ]
+          }
+        }
+      }
+    },
+    {
+      "title": "Avg Analysis Latency (p95)",
+      "type": "stat",
+      "gridPos": { "h": 4, "w": 6, "x": 12, "y": 0 },
+      "targets": [
+        {
+          "expr": "histogram_quantile(0.95, sum(rate(rootcause_analyze_duration_seconds_bucket[5m])) by (le))",
+          "legendFormat": "p95 latency"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "s",
+          "color": { "mode": "thresholds" },
+          "thresholds": {
+            "steps": [
+              { "color": "green", "value": null },
+              { "color": "yellow", "value": 1 },
+              { "color": "red", "value": 5 }
+            ]
+          }
+        }
+      }
+    },
+    {
+      "title": "Active Patterns",
+      "type": "stat",
+      "gridPos": { "h": 4, "w": 6, "x": 18, "y": 0 },
+      "targets": [
+        {
+          "expr": "count(rootcause_pattern_match_count)",
+          "legendFormat": "Patterns"
+        }
+      ]
+    },
+    {
+      "title": "Failure Type Trend",
+      "type": "timeseries",
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 4 },
+      "targets": [
+        {
+          "expr": "sum(rate(rootcause_failure_type_count_total[5m])) by (failure_type)",
+          "legendFormat": "{{failure_type}}"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "custom": {
+            "drawStyle": "line",
+            "lineInterpolation": "smooth",
+            "fillOpacity": 20,
+            "pointSize": 5
+          }
+        }
+      }
+    },
+    {
+      "title": "Failure Type Distribution",
+      "type": "piechart",
+      "gridPos": { "h": 8, "w": 6, "x": 12, "y": 4 },
+      "targets": [
+        {
+          "expr": "sum(rootcause_failure_type_count_total) by (failure_type)",
+          "legendFormat": "{{failure_type}}"
+        }
+      ]
+    },
+    {
+      "title": "Classifier Mode Usage",
+      "type": "piechart",
+      "gridPos": { "h": 8, "w": 6, "x": 18, "y": 4 },
+      "targets": [
+        {
+          "expr": "sum(rootcause_analyze_duration_seconds_count) by (classifier_mode)",
+          "legendFormat": "{{classifier_mode}}"
+        }
+      ]
+    },
+    {
+      "title": "Top Matched Patterns",
+      "type": "barchart",
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 12 },
+      "targets": [
+        {
+          "expr": "topk(10, rootcause_pattern_match_count_total)",
+          "legendFormat": "{{pattern_name}}"
+        }
+      ],
+      "options": {
+        "orientation": "horizontal"
+      }
+    },
+    {
+      "title": "Confidence Distribution",
+      "type": "histogram",
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 12 },
+      "targets": [
+        {
+          "expr": "sum(rate(rootcause_model_confidence_bucket[5m])) by (le)",
+          "legendFormat": "{{le}}"
+        }
+      ]
+    },
+    {
+      "title": "Analysis Latency Heatmap",
+      "type": "heatmap",
+      "gridPos": { "h": 8, "w": 24, "x": 0, "y": 20 },
+      "targets": [
+        {
+          "expr": "sum(increase(rootcause_analyze_duration_seconds_bucket[5m])) by (le)",
+          "legendFormat": "{{le}}"
+        }
+      ],
+      "options": {
+        "calculate": false,
+        "color": { "scheme": "Turbo" }
+      }
+    }
+  ],
+  "schemaVersion": 39,
+  "tags": ["rootcause", "ci-cd", "observability"],
+  "templating": { "list": [] },
+  "time": { "from": "now-24h", "to": "now" },
+  "title": "RootCause CI Failure Suggester",
+  "uid": "rootcause-overview"
+}
