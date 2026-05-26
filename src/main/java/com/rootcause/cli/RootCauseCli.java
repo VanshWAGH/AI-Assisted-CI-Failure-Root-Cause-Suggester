@@ -74,7 +74,7 @@ public class RootCauseCli {
         HttpRequest request = HttpRequest.newBuilder()
                 .uri(URI.create(url))
                 .header("Content-Type", "application/json")
-                .header("Authorization", "Bearer " + (config.token != null ? config.token : ""))
+                .header("X-API-Key", config.apiKey != null ? config.apiKey : "")
                 .POST(HttpRequest.BodyPublishers.ofString(body))
                 .build();
 
@@ -104,7 +104,7 @@ public class RootCauseCli {
         HttpRequest request = HttpRequest.newBuilder()
                 .uri(URI.create(url))
                 .header("Content-Type", "application/json")
-                .header("Authorization", "Bearer " + (config.token != null ? config.token : ""))
+                .header("X-API-Key", config.apiKey != null ? config.apiKey : "")
                 .POST(HttpRequest.BodyPublishers.ofString(payload))
                 .build();
 
@@ -207,7 +207,7 @@ public class RootCauseCli {
             switch (args[i]) {
                 case "--help", "-h" -> config.showHelp = true;
                 case "--api-url" -> config.apiUrl = args[++i];
-                case "--token" -> config.token = args[++i];
+                case "--api-key" -> config.apiKey = args[++i];
                 case "--job-id" -> config.jobId = args[++i];
                 case "--log-file" -> config.logFile = args[++i];
                 case "--log-text" -> config.logText = args[++i];
@@ -230,7 +230,7 @@ public class RootCauseCli {
 
                 Options:
                   --api-url URL         RootCause API base URL (required)
-                  --token TOKEN         API authentication token
+                  --api-key KEY         API authentication key
                   --job-id ID           Analyze a stored job by UUID
                   --log-file PATH       Analyze a local log file
                   --log-text TEXT        Analyze inline log text
@@ -258,7 +258,7 @@ public class RootCauseCli {
     private static class CliConfig {
         boolean showHelp;
         String apiUrl;
-        String token;
+        String apiKey;
         String jobId;
         String logFile;
         String logText;

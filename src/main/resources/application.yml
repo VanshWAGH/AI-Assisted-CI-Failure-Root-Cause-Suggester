@@ -2,10 +2,17 @@ server:
   port: 8080
   servlet:
     context-path: /
+  shutdown: graceful                          # wait for in-flight requests on SIGTERM
+  compression:
+    enabled: true
+    mime-types: application/json,text/markdown
+    min-response-size: 1024
 
 spring:
   application:
     name: rootcause-suggester
+  lifecycle:
+    timeout-per-shutdown-phase: 30s           # give async tasks 30 s to finish
 
   datasource:
     url: jdbc:postgresql://localhost:5432/rootcause
@@ -16,6 +23,9 @@ spring:
       maximum-pool-size: 20
       minimum-idle: 5
       connection-timeout: 30000
+      idle-timeout: 600000
+      max-lifetime: 1800000
+      leak-detection-threshold: 60000         # warn on connections held > 60 s
 
   jpa:
     hibernate:
@@ -28,40 +38,61 @@ spring:
         dialect: org.hibernate.dialect.PostgreSQLDialect
         jdbc:
           time_zone: UTC
+        order_inserts: true
+        order_updates: true
+        jdbc.batch_size: 25
 
   flyway:
     enabled: true
     locations: classpath:db/migration
     baseline-on-migrate: true
+    validate-on-migrate: true
 
   jackson:
     serialization:
       write-dates-as-timestamps: false
     default-property-inclusion: non_null
+    deserialization:
+      fail-on-unknown-properties: false
 
 # Actuator / Observability
 management:
   endpoints:
     web:
       exposure:
-        include: health,info,prometheus,metrics
+        include: health,info,prometheus,metrics,loggers
+      base-path: /actuator
   metrics:
     tags:
       application: rootcause-suggester
     distribution:
       percentiles-histogram:
         http.server.requests: true
+        rootcause.analyze.duration.seconds: true
+      percentiles:
+        http.server.requests: 0.5, 0.90, 0.95, 0.99
   endpoint:
     health:
       show-details: when_authorized
+      probes:
+        enabled: true                         # /actuator/health/liveness + /readiness
+  info:
+    env:
+      enabled: true
+
+info:
+  app:
+    name: ${spring.application.name}
+    version: "1.0.0"
+    description: AI-Assisted CI-Failure Root-Cause Suggester
 
 # App-specific config
 rootcause:
   classifier:
-    default-mode: RULE_BASED   # RULE_BASED | ML_ONNX | HYBRID
+    default-mode: HYBRID       # RULE_BASED | ML_ONNX | HYBRID
     onnx:
       model-path: models/log-classifier.onnx
-      enabled: false
+      enabled: true
   gitlab:
     api-url: https://gitlab.com/api/v4
     webhook-secret: ${GITLAB_WEBHOOK_SECRET:change-me}
@@ -70,10 +101,17 @@ rootcause:
     base-url: ${JENKINS_BASE_URL:http://localhost:8081}
     username: ${JENKINS_USERNAME:}
     api-token: ${JENKINS_API_TOKEN:}
+  api:
+    # Comma-separated API keys for X-API-Key authentication.
+    # Leave empty to disable auth (development mode).
+    keys: ${ROOTCAUSE_API_KEYS:}
 
-# Logging
+# Logging — include MDC requestId in every log line
 logging:
+  pattern:
+    console: "%d{yyyy-MM-dd HH:mm:ss} [%X{requestId:-no-req-id}] %-5level %logger{36} - %msg%n"
   level:
-    com.rootcause: DEBUG
+    com.rootcause: INFO
     org.hibernate.SQL: WARN
     org.flywaydb: INFO
+

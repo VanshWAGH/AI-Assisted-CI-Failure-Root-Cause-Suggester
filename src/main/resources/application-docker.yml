@@ -1,0 +1,23 @@
+# Docker profile — overrides applied when SPRING_PROFILES_ACTIVE=docker
+# All secrets come from environment variables injected by Docker Compose / K8s.
+
+spring:
+  datasource:
+    url: ${SPRING_DATASOURCE_URL:jdbc:postgresql://postgres:5432/rootcause}
+    username: ${SPRING_DATASOURCE_USERNAME:rootcause}
+    password: ${SPRING_DATASOURCE_PASSWORD:rootcause_secret}
+
+  jpa:
+    show-sql: false
+
+logging:
+  level:
+    com.rootcause: INFO
+    org.hibernate.SQL: WARN
+
+rootcause:
+  gitlab:
+    webhook-secret: ${GITLAB_WEBHOOK_SECRET:change-me}
+    private-token: ${GITLAB_PRIVATE_TOKEN:}
+  api:
+    keys: ${ROOTCAUSE_API_KEYS:}

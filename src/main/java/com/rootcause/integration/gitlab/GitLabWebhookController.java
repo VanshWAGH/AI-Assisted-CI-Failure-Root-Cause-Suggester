@@ -9,19 +9,27 @@ import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.http.ResponseEntity;
+import org.springframework.scheduling.annotation.Async;
 import org.springframework.web.bind.annotation.*;
 
-// import java.util.Arrays;
 import java.util.List;
+import java.util.Map;
 
 /**
  * Webhook receiver for GitLab CI pipeline events.
  *
- * Setup in GitLab:
+ * <p>Webhook processing is fully asynchronous — the controller returns
+ * {@code 202 Accepted} immediately while the jobs are analysed in the
+ * background on the {@code webhookExecutor} thread pool, keeping GitLab's
+ * 10 s delivery timeout well clear.
+ *
+ * <p>Setup in GitLab:
+ * <pre>
  * Settings → Webhooks → Add webhook
  * URL: https://your-api.example.com/webhooks/gitlab/pipeline
  * Trigger: Pipeline events
- * Secret token: (configured in application.yml)
+ * Secret token: (configured via GITLAB_WEBHOOK_SECRET env var)
+ * </pre>
  */
 @RestController
 @RequestMapping("/webhooks/gitlab")
@@ -38,64 +46,81 @@ public class GitLabWebhookController {
 
     /**
      * Handle GitLab pipeline webhook events.
-     * GitLab sends POST with X-Gitlab-Token header for authentication.
+     *
+     * <p>Returns {@code 202 Accepted} immediately; analysis runs async.
      */
     @PostMapping("/pipeline")
-    @Operation(summary = "Receive GitLab pipeline webhook", description = "Processes pipeline failure events and posts MR comments")
-    public ResponseEntity<?> handlePipelineEvent(
+    @Operation(
+            summary = "Receive GitLab pipeline webhook",
+            description = "Accepts pipeline failure events and triggers async root-cause analysis"
+    )
+    public ResponseEntity<Map<String, Object>> handlePipelineEvent(
             @RequestHeader(value = "X-Gitlab-Token", required = false) String token,
             @RequestBody GitLabWebhookPayload payload) {
 
         // Verify webhook secret
-        if (!webhookSecret.equals("change-me") && !webhookSecret.equals(token)) {
-            log.warn("Invalid webhook token received");
-            return ResponseEntity.status(403).body("Invalid token");
+        if (!isDefaultSecret() && !webhookSecret.equals(token)) {
+            log.warn("Rejected webhook — invalid X-Gitlab-Token from project {}",
+                    payload.getProject() != null ? payload.getProject().getPathWithNamespace() : "unknown");
+            return ResponseEntity.status(403)
+                    .body(Map.of("error", "Invalid token", "status", 403));
         }
 
-        // Only process pipeline events
+        // Only handle pipeline events
         if (!"pipeline".equals(payload.getObjectKind())) {
             log.debug("Ignoring non-pipeline event: {}", payload.getObjectKind());
-            return ResponseEntity.ok("Ignored: not a pipeline event");
+            return ResponseEntity.ok(Map.of("status", "ignored", "reason", "not a pipeline event"));
         }
 
-        // Only process failures
+        // Only handle failures
         if (!payload.isPipelineFailure()) {
-            log.debug("Ignoring non-failure pipeline: {}", payload.getObjectAttributes().getStatus());
-            return ResponseEntity.ok("Ignored: pipeline did not fail");
+            String pipelineStatus = payload.getObjectAttributes() != null
+                    ? payload.getObjectAttributes().getStatus() : "unknown";
+            log.debug("Ignoring non-failure pipeline status: {}", pipelineStatus);
+            return ResponseEntity.ok(Map.of("status", "ignored", "reason", "pipeline did not fail"));
         }
 
-        log.info("Processing pipeline failure: project={}, pipeline={}, ref={}",
-                payload.getProject().getPathWithNamespace(),
-                payload.getObjectAttributes().getId(),
-                payload.getObjectAttributes().getRef());
-
-        // Process each failed job
         List<Long> failedJobIds = payload.getFailedBuildIds();
         if (failedJobIds.isEmpty()) {
-            log.info("No failed jobs found in pipeline, skipping analysis");
-            return ResponseEntity.ok("No failed jobs to analyze");
+            log.info("Pipeline failure received but no individual jobs failed — skipping");
+            return ResponseEntity.accepted()
+                    .body(Map.of("status", "accepted", "jobsQueued", 0));
         }
 
-        // Analyze each failed job asynchronously
+        log.info("Queuing async analysis for {} failed job(s) in pipeline {} (project={})",
+                failedJobIds.size(),
+                payload.getObjectAttributes().getId(),
+                payload.getProject().getPathWithNamespace());
+
+        // Fire-and-forget — runs on webhookExecutor pool
         for (Long jobId : failedJobIds) {
-            processFailedJob(payload, jobId);
+            processFailedJobAsync(payload, jobId);
         }
 
-        return ResponseEntity.ok("Processing " + failedJobIds.size() + " failed job(s)");
+        return ResponseEntity.accepted()
+                .body(Map.of("status", "accepted", "jobsQueued", failedJobIds.size()));
     }
 
-    private void processFailedJob(GitLabWebhookPayload payload, Long jobId) {
+    /**
+     * Async job analysis — runs off the HTTP thread so GitLab never times out.
+     */
+    @Async("webhookExecutor")
+    public void processFailedJobAsync(GitLabWebhookPayload payload, Long jobId) {
         try {
             Long projectId = payload.getProject().getId();
 
-            // Fetch job log from GitLab API
             String logContent = gitLabApiClient.fetchJobLog(projectId, jobId);
             if (logContent == null || logContent.isBlank()) {
-                log.warn("Empty log for job {} in project {}", jobId, projectId);
+                log.warn("Empty log for job {} in project {} — skipping", jobId, projectId);
                 return;
             }
 
-            // Run analysis
+            // Enforce a reasonable log size cap (1 MB)
+            if (logContent.length() > 1_048_576) {
+                log.warn("Log for job {} is {} chars — truncating to 1 MB", jobId, logContent.length());
+                logContent = logContent.substring(logContent.length() - 1_048_576);
+            }
+
             AnalyzeRawRequest request = AnalyzeRawRequest.builder()
                     .projectName(payload.getProject().getPathWithNamespace())
                     .pipelineRef(String.valueOf(payload.getObjectAttributes().getId()))
@@ -107,7 +132,7 @@ public class GitLabWebhookController {
 
             AnalysisResponse response = classificationService.analyzeRaw(request);
 
-            // Post MR comment if this pipeline is associated with a merge request
+            // Post MR comment when the pipeline is linked to a merge request
             if (payload.getMergeRequest() != null && payload.getMergeRequest().getIid() != null) {
                 String comment = gitLabApiClient.formatMrComment(
                         response.getFailureType(),
@@ -121,11 +146,15 @@ public class GitLabWebhookController {
                         comment);
             }
 
-            log.info("Analysis complete for GitLab job {}: type={}, confidence={}",
-                    jobId, response.getFailureType(), String.format("%.2f", response.getConfidence()));
+            log.info("Async analysis done for GitLab job {}: type={}, confidence={:.2f}",
+                    jobId, response.getFailureType(), response.getConfidence());
 
         } catch (Exception e) {
-            log.error("Failed to process GitLab job {}: {}", jobId, e.getMessage(), e);
+            log.error("Async processing failed for GitLab job {}: {}", jobId, e.getMessage(), e);
         }
+    }
+
+    private boolean isDefaultSecret() {
+        return "change-me".equals(webhookSecret);
     }
 }

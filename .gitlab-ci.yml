@@ -94,7 +94,7 @@ analyze-failure:
       RESPONSE=$(curl -s -w "\n%{http_code}" -X POST \
         "${ROOTCAUSE_API_URL}/api/v1/analyze/raw" \
         -H "Content-Type: application/json" \
-        -H "Authorization: Bearer ${ROOTCAUSE_API_TOKEN}" \
+        -H "X-API-Key: ${ROOTCAUSE_API_KEY}" \
         -d "{
           \"projectName\": \"${CI_PROJECT_PATH}\",
           \"pipelineRef\": \"${CI_PIPELINE_ID}\",

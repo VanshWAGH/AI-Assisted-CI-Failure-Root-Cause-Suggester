@@ -98,6 +98,7 @@ docker compose up -d postgres
 ```bash
 curl -X POST http://localhost:8080/api/v1/analyze/raw \
   -H "Content-Type: application/json" \
+  -H "X-API-Key: your_api_key_here" \
   -d '{
     "projectName": "my-org/my-app",
     "branchName": "feature/auth",
@@ -127,13 +128,14 @@ curl -X POST http://localhost:8080/api/v1/analyze/raw \
 ```bash
 curl -X POST http://localhost:8080/api/v1/jobs/{jobId}/analyze \
   -H "Content-Type: application/json" \
+  -H "X-API-Key: your_api_key_here" \
   -d '{"mode": "RULE_BASED"}'
 ```
 
 ### Get Markdown report
 
 ```bash
-curl http://localhost:8080/api/v1/jobs/{jobId}/report
+curl -H "X-API-Key: your_api_key_here" http://localhost:8080/api/v1/jobs/{jobId}/report
 ```
 
 ---
@@ -153,6 +155,7 @@ analyze-failure:
     - |
       curl -s -X POST "${ROOTCAUSE_API_URL}/api/v1/analyze/raw" \
         -H "Content-Type: application/json" \
+        -H "X-API-Key: ${ROOTCAUSE_API_KEY}" \
         -d "{\"projectName\":\"${CI_PROJECT_PATH}\",\"ciPlatform\":\"GITLAB\",\"logContent\":\"...\"}"
 ```
 

@@ -43,3 +43,5 @@ ml/*.onnx
 pgdata/
 promdata/
 grafanadata/
+ngrok.exe
+.env

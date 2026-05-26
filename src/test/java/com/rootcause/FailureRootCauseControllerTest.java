@@ -192,4 +192,71 @@ class FailureRootCauseControllerTest {
                                 .andExpect(content().string(Objects.requireNonNull(
                                                 containsString("CI Failure Root-Cause Analysis Report"))));
         }
+
+        @Test
+        @DisplayName("GET /api/v1/history should return paginated recent analyses")
+        void shouldReturnPaginatedHistory() throws Exception {
+                // Create and analyze a job first
+                AnalyzeRawRequest request = AnalyzeRawRequest.builder()
+                                .projectName("history-test")
+                                .ciPlatform("GITLAB")
+                                .logContent("Connection refused at database:5432")
+                                .build();
+
+                mockMvc.perform(post("/api/v1/analyze/raw")
+                                .contentType(Objects.requireNonNull(MediaType.APPLICATION_JSON))
+                                .content(Objects.requireNonNull(objectMapper.writeValueAsString(request))))
+                                .andExpect(status().isOk());
+
+                // Fetch history
+                mockMvc.perform(get("/api/v1/history?page=0&size=10"))
+                                .andExpect(status().isOk())
+                                .andExpect(jsonPath("$.content", hasSize(greaterThanOrEqualTo(1))))
+                                .andExpect(jsonPath("$.content[0].projectName", is("history-test")))
+                                .andExpect(jsonPath("$.content[0].failureType", is("infra")))
+                                .andExpect(jsonPath("$.totalElements", greaterThanOrEqualTo(1)));
+        }
+
+        @Test
+        @DisplayName("GET /api/v1/history with type filter should only return matching analyses")
+        void shouldReturnFilteredHistory() throws Exception {
+                AnalyzeRawRequest request = AnalyzeRawRequest.builder()
+                                .projectName("history-filter-test")
+                                .ciPlatform("GITLAB")
+                                .logContent("Tests run: 1, Failures: 1")
+                                .build();
+
+                mockMvc.perform(post("/api/v1/analyze/raw")
+                                .contentType(Objects.requireNonNull(MediaType.APPLICATION_JSON))
+                                .content(Objects.requireNonNull(objectMapper.writeValueAsString(request))))
+                                .andExpect(status().isOk());
+
+                mockMvc.perform(get("/api/v1/history?type=test"))
+                                .andExpect(status().isOk())
+                                .andExpect(jsonPath("$.content", hasSize(greaterThanOrEqualTo(1))))
+                                .andExpect(jsonPath("$.content[0].failureType", is("test")));
+                
+                mockMvc.perform(get("/api/v1/history?type=infra"))
+                                .andExpect(status().isOk())
+                                .andExpect(jsonPath("$.content[*].failureType", everyItem(is("infra"))));
+        }
+
+        @Test
+        @DisplayName("POST /api/v1/analyze/raw should reject payloads over 1MB")
+        void shouldRejectOversizedLog() throws Exception {
+                // Create a string slightly larger than 1MB
+                String largeLog = "a".repeat(1048577);
+                
+                AnalyzeRawRequest request = AnalyzeRawRequest.builder()
+                                .projectName("oversize-test")
+                                .ciPlatform("GITLAB")
+                                .logContent(largeLog)
+                                .build();
+
+                mockMvc.perform(post("/api/v1/analyze/raw")
+                                .contentType(Objects.requireNonNull(MediaType.APPLICATION_JSON))
+                                .content(Objects.requireNonNull(objectMapper.writeValueAsString(request))))
+                                .andExpect(status().isBadRequest())
+                                .andExpect(jsonPath("$.message", containsString("exceeds the 1 MB limit")));
+        }
 }
