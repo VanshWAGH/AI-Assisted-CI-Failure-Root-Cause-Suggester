@@ -101,6 +101,7 @@ rootcause:
     base-url: ${JENKINS_BASE_URL:http://localhost:8081}
     username: ${JENKINS_USERNAME:}
     api-token: ${JENKINS_API_TOKEN:}
+    webhook-secret: ${JENKINS_WEBHOOK_SECRET:}
   api:
     # Comma-separated API keys for X-API-Key authentication.
     # Leave empty to disable auth (development mode).

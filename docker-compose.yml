@@ -54,6 +54,7 @@ services:
       JENKINS_BASE_URL: ${JENKINS_BASE_URL:-}
       JENKINS_USERNAME: ${JENKINS_USERNAME:-}
       JENKINS_API_TOKEN: ${JENKINS_API_TOKEN:-}
+      JENKINS_WEBHOOK_SECRET: ${JENKINS_WEBHOOK_SECRET:-}
     depends_on:
       postgres:
         condition: service_healthy
@@ -123,7 +124,28 @@ services:
           cpus: '0.5'
           memory: 256M
 
+  # ─── Jenkins ────────────────────────────────────────────────────────────────
+  jenkins:
+    image: jenkins/jenkins:lts-jdk17
+    container_name: rootcause-jenkins
+    restart: unless-stopped
+    ports:
+      - "8081:8080"
+      - "50000:50000"
+    environment:
+      JAVA_OPTS: "-Djenkins.install.runSetupWizard=false"
+    volumes:
+      - jenkinsdata:/var/jenkins_home
+    networks:
+      - backend
+    deploy:
+      resources:
+        limits:
+          cpus: '1.0'
+          memory: 1G
+
 volumes:
   pgdata:
   promdata:
   grafanadata:
+  jenkinsdata:
