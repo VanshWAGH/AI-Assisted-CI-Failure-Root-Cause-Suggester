@@ -29,4 +29,14 @@ public interface JobFailureAnalysisRepository extends JpaRepository<JobFailureAn
 
     @Query("SELECT a FROM JobFailureAnalysis a JOIN FETCH a.job WHERE a.job.projectName = :projectName ORDER BY a.analyzedAt DESC")
     List<JobFailureAnalysis> findRecentByProject(String projectName);
+
+    @Query("SELECT a FROM JobFailureAnalysis a JOIN FETCH a.job ORDER BY a.analyzedAt DESC")
+    List<JobFailureAnalysis> findRecentAnalyses(Pageable pageable);
+
+    @Query("SELECT a FROM JobFailureAnalysis a JOIN FETCH a.job WHERE a.analyzedAt > :since ORDER BY a.analyzedAt ASC")
+    List<JobFailureAnalysis> findAnalysesSince(Instant since);
+
+    @Query("SELECT AVG(a.confidence) FROM JobFailureAnalysis a WHERE a.analyzedAt > :since")
+    Double getAverageConfidenceSince(Instant since);
 }
+

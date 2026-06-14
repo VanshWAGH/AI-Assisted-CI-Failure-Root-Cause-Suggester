@@ -217,27 +217,71 @@ Grafana dashboard auto-provisions at http://localhost:3000 with Docker Compose.
 
 ---
 
+## 🖥️ Operations Console (React + Electron)
+
+The project includes a cyberpunk-themed Operations Console that displays metrics, trends, and recent logs, and allows manual log analysis.
+
+### Running the Web Dashboard (Docker Compose)
+When running `docker compose up`, the web interface is exposed automatically:
+* **Web Dashboard**: `http://localhost:3001`
+* **Port mapping**: Port `3001` is forwarded to Nginx serving the compiled React build and reverse-proxying requests to `http://localhost:8080/api/v1`.
+
+### Running the Desktop App (Electron)
+To run the dashboard as a native cross-platform desktop application:
+```bash
+# 1. Start the React frontend dev server (in frontend/)
+cd frontend
+npm run dev
+
+# 2. Start the Electron desktop app (in desktop/)
+cd ../desktop
+npm install
+npm start
+```
+
+---
+
+## 🔗 CI/CD integrations
+
+### GitHub Actions
+Set up a webhook in your GitHub repository targeting your API instance:
+1. URL: `https://your-api.example.com/webhooks/github/workflow-run`
+2. Content Type: `application/json`
+3. Secret: (configured via `GITHUB_WEBHOOK_SECRET`)
+4. Trigger: **Workflow runs**
+
+Ensure your workflows are configured under `.github/workflows/ci.yml`. Failed workflows will trigger automated log analysis, posting comments with suggested remedies directly to corresponding Pull Requests.
+
+### GitLab CI
+URL: `https://your-api/webhooks/gitlab/pipeline`, Trigger: **Pipeline events**. Comments are posted back on MRs. See [.gitlab-ci.yml](.gitlab-ci.yml).
+
+### Jenkins
+Jenkins Shared Library resides in `docs/jenkins-shared-lib/vars/`.
+
+---
+
 ## 📁 Project Structure
 
 ```
 ├── src/main/java/com/rootcause/
 │   ├── domain/          # JPA entities + enums
 │   ├── repository/      # Spring Data JPA
-│   ├── service/         # Business logic
+│   ├── service/         # Business logic (Dashboard, Classification, Reports)
 │   ├── classifier/      # Rule-based + ONNX classifiers
 │   ├── web/             # REST controllers + DTOs
-│   ├── integration/     # GitLab + Jenkins adapters
-│   ├── config/          # Spring configuration
+│   ├── integration/     # GitLab, Jenkins, & GitHub webhook adapters
+│   ├── config/          # Spring Security, CORS & Beans
 │   ├── metrics/         # Prometheus metrics
 │   └── cli/             # CLI tool
-├── src/main/resources/
-│   ├── application.yml
-│   └── db/migration/    # Flyway SQL
-├── ml/                  # Python training pipeline
-├── docker/              # Dockerfile, Prometheus, Grafana
-├── docs/                # Jenkins shared lib, runbooks
-├── .gitlab-ci.yml       # GitLab CI integration example
-└── docker-compose.yml
+├── frontend/            # React + Vite TypeScript Dashboard application
+│   ├── src/components/  # SummaryCards, Recharts charts, LogViewer
+│   ├── src/pages/       # DashboardPage, AnalyzePage, HistoryPage
+│   ├── src/hooks/       # Custom Axios data hooks
+│   └── Dockerfile       # Nginx multi-stage build configuration
+├── desktop/             # Electron wrapper main thread and tsconfig
+├── ml/                  # Python training pipeline (LightGBM)
+├── docker/              # Spring Boot Dockerfile, Prometheus, Grafana configs
+└── docker-compose.yml   # Multi-container database, backend, dashboard stack
 ```
 
 ---
@@ -246,16 +290,15 @@ Grafana dashboard auto-provisions at http://localhost:3000 with Docker Compose.
 
 | Component | Technology |
 |-----------|-----------|
-| Language | Java 17 |
-| Framework | Spring Boot 3.3 |
+| Language | Java 17, TypeScript |
+| Backend | Spring Boot 3.3, Hibernate, Spring Security |
 | Database | PostgreSQL 16 |
 | Migrations | Flyway |
+| Frontend | React, Vite, Recharts, Framer Motion |
+| Desktop App | Electron |
 | ML Runtime | ONNX Runtime (Java) |
 | ML Training | Python + LightGBM + scikit-learn |
 | Metrics | Micrometer + Prometheus |
 | Dashboard | Grafana |
-| API Docs | SpringDoc OpenAPI (Swagger) |
 | Container | Docker + Docker Compose |
-| CI | GitLab CI/CD |
-
-
+| CI Platforms | GitHub Actions, GitLab CI/CD, Jenkins |

@@ -16,7 +16,7 @@ services:
       POSTGRES_USER: rootcause
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-rootcause_secret}
     ports:
-      - "5432:5432"
+      - "5433:5432"
     volumes:
       - pgdata:/var/lib/postgresql/data
     networks:
@@ -55,6 +55,8 @@ services:
       JENKINS_USERNAME: ${JENKINS_USERNAME:-}
       JENKINS_API_TOKEN: ${JENKINS_API_TOKEN:-}
       JENKINS_WEBHOOK_SECRET: ${JENKINS_WEBHOOK_SECRET:-}
+      GITHUB_WEBHOOK_SECRET: ${GITHUB_WEBHOOK_SECRET:-change-me}
+      GITHUB_TOKEN: ${GITHUB_TOKEN:-}
     depends_on:
       postgres:
         condition: service_healthy
@@ -143,6 +145,28 @@ services:
         limits:
           cpus: '1.0'
           memory: 1G
+
+  # ─── React Dashboard Frontend ──────────────────────────────────────────────
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    image: rootcause-frontend:latest
+    container_name: rootcause-frontend
+    restart: unless-stopped
+    ports:
+      - "3001:80"
+    depends_on:
+      api:
+        condition: service_healthy
+    networks:
+      - backend
+    deploy:
+      resources:
+        limits:
+          cpus: '0.5'
+          memory: 256M
+
 
 volumes:
   pgdata:

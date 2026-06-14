@@ -1,0 +1,31 @@
+{
+  "name": "rootcause-desktop",
+  "version": "1.0.0",
+  "description": "AI-Assisted CI-Failure Root-Cause Suggester Operations Console",
+  "main": "dist/main.js",
+  "scripts": {
+    "build": "tsc",
+    "start": "tsc && electron .",
+    "package": "tsc && electron-builder"
+  },
+  "devDependencies": {
+    "electron": "^30.0.0",
+    "electron-builder": "^24.13.3",
+    "typescript": "^5.4.5"
+  },
+  "build": {
+    "appId": "com.rootcause.ops-console",
+    "productName": "RootCauseOpsConsole",
+    "directories": {
+      "output": "release"
+    },
+    "files": [
+      "dist/**/*",
+      "preload.js",
+      "../frontend/dist/**/*"
+    ],
+    "win": {
+      "target": "nsis"
+    }
+  }
+}

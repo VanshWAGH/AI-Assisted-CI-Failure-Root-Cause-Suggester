@@ -105,6 +105,22 @@ tasks.withType(JavaCompile).configureEach {
     ]
 }
 
+bootRun {
+    doFirst {
+        def junctionBase = 'd:\\Project\\RootCauseApp'
+        def realBase     = projectDir.absolutePath
+
+        classpath = files(classpath.collect { f ->
+            def path = f.absolutePath
+            if (path.toLowerCase().startsWith(realBase.toLowerCase())) {
+                file(junctionBase + path.substring(realBase.length()))
+            } else {
+                f
+            }
+        })
+    }
+}
+
 bootJar {
     archiveBaseName = 'rootcause-suggester'
 }

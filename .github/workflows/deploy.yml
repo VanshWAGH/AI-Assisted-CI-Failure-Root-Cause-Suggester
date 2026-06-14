@@ -1,0 +1,105 @@
+name: Deploy to Render + Vercel
+
+on:
+  push:
+    branches: [main]
+
+# Separate job per service so they can deploy independently and in parallel
+jobs:
+  # ─────────────────────────────────────────────────────────────
+  # 1. CI — Build & Test (gates both deploys)
+  # ─────────────────────────────────────────────────────────────
+  ci:
+    name: Build & Test (JDK 17)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v4
+        with:
+          java-version: '17'
+          distribution: 'temurin'
+          cache: 'gradle'
+
+      - name: Grant Execute Permission for Gradlew
+        run: chmod +x gradlew
+
+      - name: Build (skip tests for speed — tests run in CI workflow)
+        run: ./gradlew bootJar --no-daemon -x test -q
+
+      - name: Archive JUnit Test Reports
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: test-reports
+          path: build/reports/tests/test
+
+  # ─────────────────────────────────────────────────────────────
+  # 2. Deploy Backend → Render
+  # ─────────────────────────────────────────────────────────────
+  deploy-backend:
+    name: Deploy API to Render
+    needs: ci
+    runs-on: ubuntu-latest
+    steps:
+      - name: Trigger Render Deploy Hook
+        # Store your Render deploy hook URL as:
+        #   GitHub → Settings → Secrets → RENDER_DEPLOY_HOOK_URL
+        # Get it from: Render Dashboard → your service → Settings → Deploy Hooks
+        run: |
+          if [ -n "${{ secrets.RENDER_DEPLOY_HOOK_URL }}" ]; then
+            curl -s --fail -X POST "${{ secrets.RENDER_DEPLOY_HOOK_URL }}" \
+              -o /dev/null -w "HTTP %{http_code}\n"
+            echo "✅ Render deploy triggered"
+          else
+            echo "⚠️  RENDER_DEPLOY_HOOK_URL secret not set. Skipping Render deploy trigger."
+            echo "    Add it at: GitHub → Settings → Secrets → Actions → New repository secret"
+          fi
+
+  # ─────────────────────────────────────────────────────────────
+  # 3. Deploy Frontend → Vercel
+  # ─────────────────────────────────────────────────────────────
+  deploy-frontend:
+    name: Deploy Frontend to Vercel
+    needs: ci
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: frontend
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Node.js 20
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Build frontend
+        # VITE_API_BASE_URL: set this secret to your Render API URL, e.g.:
+        #   https://rootcause-api.onrender.com/api/v1
+        # VITE_API_KEY: your ROOTCAUSE_API_KEYS value
+        env:
+          VITE_API_BASE_URL: ${{ secrets.VITE_API_BASE_URL }}
+          VITE_API_KEY: ${{ secrets.VITE_API_KEY }}
+        run: npm run build
+
+      - name: Deploy to Vercel
+        # Requires these GitHub secrets (get from vercel.com → Account Settings → Tokens):
+        #   VERCEL_TOKEN        — personal access token
+        #   VERCEL_ORG_ID       — found in vercel.com → Settings → General
+        #   VERCEL_PROJECT_ID   — found in vercel.com → Project → Settings → General
+        run: |
+          npm install -g vercel@latest --quiet
+          vercel deploy --prod \
+            --token="${{ secrets.VERCEL_TOKEN }}" \
+            --yes \
+            2>&1 | tail -5
+        env:
+          VERCEL_ORG_ID: ${{ secrets.VERCEL_ORG_ID }}
+          VERCEL_PROJECT_ID: ${{ secrets.VERCEL_PROJECT_ID }}

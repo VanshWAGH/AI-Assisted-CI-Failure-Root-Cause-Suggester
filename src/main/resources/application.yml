@@ -15,7 +15,7 @@ spring:
     timeout-per-shutdown-phase: 30s           # give async tasks 30 s to finish
 
   datasource:
-    url: jdbc:postgresql://localhost:5432/rootcause
+    url: jdbc:postgresql://localhost:5433/rootcause
     username: rootcause
     password: rootcause_secret
     driver-class-name: org.postgresql.Driver
@@ -102,6 +102,10 @@ rootcause:
     username: ${JENKINS_USERNAME:}
     api-token: ${JENKINS_API_TOKEN:}
     webhook-secret: ${JENKINS_WEBHOOK_SECRET:}
+  github:
+    api-url: ${GITHUB_API_URL:https://api.github.com}
+    webhook-secret: ${GITHUB_WEBHOOK_SECRET:change-me}
+    token: ${GITHUB_TOKEN:}
   api:
     # Comma-separated API keys for X-API-Key authentication.
     # Leave empty to disable auth (development mode).

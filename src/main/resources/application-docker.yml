@@ -1,5 +1,5 @@
 # Docker profile — overrides applied when SPRING_PROFILES_ACTIVE=docker
-# All secrets come from environment variables injected by Docker Compose / K8s.
+# All secrets come from environment variables injected by Docker Compose / Render.
 
 spring:
   datasource:
@@ -21,3 +21,10 @@ rootcause:
     private-token: ${GITLAB_PRIVATE_TOKEN:}
   api:
     keys: ${ROOTCAUSE_API_KEYS:}
+
+# CORS: comma-separated list of allowed origins.
+# In production set CORS_ALLOWED_ORIGINS to your Vercel URL, e.g.:
+#   https://rootcause-suggester.vercel.app
+cors:
+  allowed-origins: ${CORS_ALLOWED_ORIGINS:http://localhost:5173,http://localhost:3001,http://localhost:3000}
+
