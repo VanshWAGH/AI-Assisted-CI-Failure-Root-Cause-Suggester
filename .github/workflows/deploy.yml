@@ -3,12 +3,16 @@ name: Deploy to Render + Vercel
 on:
   push:
     branches: [main]
+  workflow_dispatch:          # allow manual trigger from GitHub UI
 
-# Separate job per service so they can deploy independently and in parallel
+concurrency:
+  group: deploy-${{ github.ref }}
+  cancel-in-progress: true   # cancel in-flight deploys when a new push arrives
+
 jobs:
-  # ─────────────────────────────────────────────────────────────
+  # ─────────────────────────────────────────────────────────────────────────────
   # 1. CI — Build & Test (gates both deploys)
-  # ─────────────────────────────────────────────────────────────
+  # ─────────────────────────────────────────────────────────────────────────────
   ci:
     name: Build & Test (JDK 17)
     runs-on: ubuntu-latest
@@ -25,48 +29,92 @@ jobs:
       - name: Grant Execute Permission for Gradlew
         run: chmod +x gradlew
 
-      - name: Build (skip tests for speed — tests run in CI workflow)
+      - name: Build JAR (tests skipped — run separately)
         run: ./gradlew bootJar --no-daemon -x test -q
 
-      - name: Archive JUnit Test Reports
+      - name: Upload JAR artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: app-jar
+          path: build/libs/rootcause-suggester-*.jar
+          retention-days: 3
+
+      - name: Archive JUnit Test Reports on Failure
         if: failure()
         uses: actions/upload-artifact@v4
         with:
           name: test-reports
           path: build/reports/tests/test
 
-  # ─────────────────────────────────────────────────────────────
+  # ─────────────────────────────────────────────────────────────────────────────
   # 2. Deploy Backend → Render
-  # ─────────────────────────────────────────────────────────────
+  # ─────────────────────────────────────────────────────────────────────────────
   deploy-backend:
-    name: Deploy API to Render
+    name: Deploy API → Render
     needs: ci
     runs-on: ubuntu-latest
     steps:
-      - name: Trigger Render Deploy Hook
-        # Store your Render deploy hook URL as:
-        #   GitHub → Settings → Secrets → RENDER_DEPLOY_HOOK_URL
-        # Get it from: Render Dashboard → your service → Settings → Deploy Hooks
+      - name: Check secret
+        id: check
         run: |
-          if [ -n "${{ secrets.RENDER_DEPLOY_HOOK_URL }}" ]; then
-            curl -s --fail -X POST "${{ secrets.RENDER_DEPLOY_HOOK_URL }}" \
-              -o /dev/null -w "HTTP %{http_code}\n"
-            echo "✅ Render deploy triggered"
+          if [ -z "${{ secrets.RENDER_DEPLOY_HOOK_URL }}" ]; then
+            echo "skip=true" >> $GITHUB_OUTPUT
+            echo "⚠️  RENDER_DEPLOY_HOOK_URL not set — skipping backend deploy."
+            echo "   Add it at: GitHub → Settings → Secrets → Actions → New repository secret"
           else
-            echo "⚠️  RENDER_DEPLOY_HOOK_URL secret not set. Skipping Render deploy trigger."
-            echo "    Add it at: GitHub → Settings → Secrets → Actions → New repository secret"
+            echo "skip=false" >> $GITHUB_OUTPUT
           fi
 
-  # ─────────────────────────────────────────────────────────────
+      - name: Trigger Render Deploy Hook
+        if: steps.check.outputs.skip == 'false'
+        run: |
+          RESPONSE=$(curl -s -o /dev/null -w "%{http_code}" -X POST "${{ secrets.RENDER_DEPLOY_HOOK_URL }}")
+          if [ "$RESPONSE" -ge 200 ] && [ "$RESPONSE" -lt 300 ]; then
+            echo "✅ Render deploy hook triggered (HTTP $RESPONSE)"
+          else
+            echo "❌ Render deploy hook failed (HTTP $RESPONSE)"
+            exit 1
+          fi
+
+      - name: Wait for Render to go live
+        if: steps.check.outputs.skip == 'false'
+        run: |
+          echo "⏳ Waiting for Render health check..."
+          for i in $(seq 1 24); do
+            STATUS=$(curl -s -o /dev/null -w "%{http_code}" \
+              https://rootcause-api.onrender.com/actuator/health/readiness || echo "000")
+            if [ "$STATUS" = "200" ]; then
+              echo "✅ Backend is live! (attempt $i)"
+              exit 0
+            fi
+            echo "  attempt $i — HTTP $STATUS — waiting 30s..."
+            sleep 30
+          done
+          echo "⚠️  Backend did not become healthy after 12 min (Render free-tier may still be building)"
+          # Don't fail the workflow — Render continues building in background
+
+      - name: Summary
+        if: steps.check.outputs.skip == 'false'
+        run: |
+          echo "### 🚀 Backend Deployment" >> $GITHUB_STEP_SUMMARY
+          echo "| | |" >> $GITHUB_STEP_SUMMARY
+          echo "|---|---|" >> $GITHUB_STEP_SUMMARY
+          echo "| Service | Render (Docker) |" >> $GITHUB_STEP_SUMMARY
+          echo "| URL | https://rootcause-api.onrender.com |" >> $GITHUB_STEP_SUMMARY
+          echo "| Health | https://rootcause-api.onrender.com/actuator/health/readiness |" >> $GITHUB_STEP_SUMMARY
+
+  # ─────────────────────────────────────────────────────────────────────────────
   # 3. Deploy Frontend → Vercel
-  # ─────────────────────────────────────────────────────────────
+  # ─────────────────────────────────────────────────────────────────────────────
   deploy-frontend:
-    name: Deploy Frontend to Vercel
+    name: Deploy Frontend → Vercel
     needs: ci
     runs-on: ubuntu-latest
     defaults:
       run:
         working-directory: frontend
+    outputs:
+      vercel-url: ${{ steps.deploy.outputs.url }}
     steps:
       - uses: actions/checkout@v4
 
@@ -81,25 +129,44 @@ jobs:
         run: npm ci
 
       - name: Build frontend
-        # VITE_API_BASE_URL: set this secret to your Render API URL, e.g.:
-        #   https://rootcause-api.onrender.com/api/v1
-        # VITE_API_KEY: your ROOTCAUSE_API_KEYS value
         env:
-          VITE_API_BASE_URL: ${{ secrets.VITE_API_BASE_URL }}
-          VITE_API_KEY: ${{ secrets.VITE_API_KEY }}
+          # Falls back to the value baked in .env.production if secret not set
+          VITE_API_BASE_URL: ${{ secrets.VITE_API_BASE_URL || 'https://rootcause-api.onrender.com/api/v1' }}
+          VITE_API_KEY: ${{ secrets.VITE_API_KEY || 'rca_92d6c92615c849759e0cc8523e8fc567' }}
         run: npm run build
 
+      - name: Check Vercel secrets
+        id: check-vercel
+        run: |
+          if [ -z "${{ secrets.VERCEL_TOKEN }}" ]; then
+            echo "skip=true" >> $GITHUB_OUTPUT
+            echo "⚠️  VERCEL_TOKEN not set — skipping Vercel deploy."
+            echo "   See: https://vercel.com/account/tokens"
+          else
+            echo "skip=false" >> $GITHUB_OUTPUT
+          fi
+
       - name: Deploy to Vercel
-        # Requires these GitHub secrets (get from vercel.com → Account Settings → Tokens):
-        #   VERCEL_TOKEN        — personal access token
-        #   VERCEL_ORG_ID       — found in vercel.com → Settings → General
-        #   VERCEL_PROJECT_ID   — found in vercel.com → Project → Settings → General
+        id: deploy
+        if: steps.check-vercel.outputs.skip == 'false'
         run: |
           npm install -g vercel@latest --quiet
-          vercel deploy --prod \
+          DEPLOY_URL=$(vercel deploy --prod \
             --token="${{ secrets.VERCEL_TOKEN }}" \
             --yes \
-            2>&1 | tail -5
+            2>&1 | grep -E "^https://" | tail -1)
+          echo "url=$DEPLOY_URL" >> $GITHUB_OUTPUT
+          echo "✅ Deployed to: $DEPLOY_URL"
         env:
           VERCEL_ORG_ID: ${{ secrets.VERCEL_ORG_ID }}
           VERCEL_PROJECT_ID: ${{ secrets.VERCEL_PROJECT_ID }}
+
+      - name: Summary
+        if: steps.check-vercel.outputs.skip == 'false'
+        run: |
+          echo "### ⚡ Frontend Deployment" >> $GITHUB_STEP_SUMMARY
+          echo "| | |" >> $GITHUB_STEP_SUMMARY
+          echo "|---|---|" >> $GITHUB_STEP_SUMMARY
+          echo "| Service | Vercel |" >> $GITHUB_STEP_SUMMARY
+          echo "| URL | ${{ steps.deploy.outputs.url }} |" >> $GITHUB_STEP_SUMMARY
+          echo "| API Target | https://rootcause-api.onrender.com/api/v1 |" >> $GITHUB_STEP_SUMMARY
