@@ -48,7 +48,6 @@ public class SecurityConfig {
 
     @Bean
     public org.springframework.web.cors.CorsConfigurationSource corsConfigurationSource() {
-        // Parse comma-separated origins from env var / config
         List<String> origins = new ArrayList<>(
             Arrays.asList(corsAllowedOrigins.split(","))
         );
@@ -56,7 +55,15 @@ public class SecurityConfig {
 
         org.springframework.web.cors.CorsConfiguration configuration =
                 new org.springframework.web.cors.CorsConfiguration();
-        configuration.setAllowedOrigins(origins);
+
+        // Wildcard "*" requires allowedOriginPatterns (not allowedOrigins)
+        // because allowCredentials=true is incompatible with a literal "*" origin.
+        if (origins.size() == 1 && "*".equals(origins.get(0))) {
+            configuration.addAllowedOriginPattern("*");
+        } else {
+            configuration.setAllowedOrigins(origins);
+        }
+
         configuration.setAllowedMethods(List.of("GET", "POST", "PUT", "DELETE", "OPTIONS", "PATCH"));
         configuration.setAllowedHeaders(List.of("*"));
         configuration.setAllowCredentials(true);

@@ -1,0 +1,48 @@
+# netlify.toml — Netlify deployment config for the React dashboard
+#
+# HOW TO DEPLOY (2 options):
+#
+# Option A — Connect GitHub (automatic CI/CD):
+#   1. Go to https://netlify.com → "Add new site" → "Import an existing project"
+#   2. Connect your GitHub repo
+#   3. Set "Base directory" to: frontend
+#   4. Build command and publish dir are read from this file automatically
+#   5. Add environment variables (Site settings → Environment variables):
+#        VITE_API_BASE_URL = https://rootcause-api.onrender.com/api/v1
+#        VITE_API_KEY      = rca_92d6c92615c849759e0cc8523e8fc567
+#   6. Click "Deploy site" — done!
+#
+# Option B — Drag & Drop (instant, no account setup):
+#   1. Run: cd frontend && npm run build
+#   2. Go to https://netlify.com/drop
+#   3. Drag the frontend/dist folder onto the page
+#   4. Your site is live instantly at a random netlify.app URL!
+#   (Note: env vars must be set at build time for Option B — see .env.production)
+
+[build]
+  base    = "frontend"         # root directory for this site
+  command = "npm run build"
+  publish = "dist"
+
+[build.environment]
+  NODE_VERSION = "20"
+
+# SPA routing — send all paths to index.html so React Router works
+[[redirects]]
+  from   = "/*"
+  to     = "/index.html"
+  status = 200
+
+# Security headers
+[[headers]]
+  for = "/*"
+  [headers.values]
+    X-Frame-Options        = "DENY"
+    X-Content-Type-Options = "nosniff"
+    Referrer-Policy        = "strict-origin-when-cross-origin"
+
+# Long cache for hashed assets (Vite adds content hash to filenames)
+[[headers]]
+  for = "/assets/*"
+  [headers.values]
+    Cache-Control = "public, max-age=31536000, immutable"

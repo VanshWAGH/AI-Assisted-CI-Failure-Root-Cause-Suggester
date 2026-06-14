@@ -1,60 +1,89 @@
-# render.yaml — Render.com Infrastructure-as-Code
-# Deploys the Spring Boot API as a Docker-based web service (free tier).
+# ============================================================
+#  render.yaml  —  Render.com Blueprint
+#  AI-Assisted CI-Failure Root-Cause Suggester
+# ============================================================
 #
-# SETUP STEPS:
-# 1. Create a free account at https://render.com
-# 2. Connect your GitHub repo
-# 3. Render will auto-detect this file and create the service
-# 4. Set the environment variables listed below in the Render dashboard
-#    (or they will use the defaults shown here)
+#  ONE-CLICK DEPLOY:
+#  1. Go to https://dashboard.render.com/blueprints
+#  2. Click "New Blueprint Instance"
+#  3. Connect your GitHub repo → Render reads this file
+#  4. Fill in the 4 secret values Render asks for (marked sync:false below)
+#  5. Click "Apply" — Render builds and deploys automatically
+#
+#  DATABASE (Neon — free forever):
+#  Before clicking Apply:
+#   a) Create free account at https://neon.tech
+#   b) Create a project → go to Dashboard → Connection Details
+#   c) Switch format to "JDBC" → copy the connection string:
+#      jdbc:postgresql://ep-xxx.region.aws.neon.tech/neondb?sslmode=require
+#   d) Also copy the Username and Password shown below the URL
+# ============================================================
 
 services:
+
+  # ── Spring Boot API ────────────────────────────────────────
   - type: web
     name: rootcause-api
     runtime: docker
     dockerfilePath: ./docker/Dockerfile
-    # Free instance — spins down after 15 min of inactivity
-    plan: free
-    region: oregon
+    dockerContext: .
+    plan: free                     # Free tier — sleeps after 15 min idle
+
+    region: oregon                 # Options: oregon, frankfurt, singapore, ohio
 
     healthCheckPath: /actuator/health/readiness
 
+    # Autoscaling is not available on free tier
+    scaling:
+      minInstances: 1
+      maxInstances: 1
+      targetMemoryPercent: 80
+      targetCPUPercent: 80
+
     envVars:
+
+      # ── Spring profile ───────────────────────────────────
       - key: SPRING_PROFILES_ACTIVE
         value: docker
 
-      # --- Database (Neon PostgreSQL) ---
-      # Set SPRING_DATASOURCE_URL in Render dashboard after creating your Neon DB.
-      # Format: jdbc:postgresql://<neon-host>/<db>?sslmode=require
-      - key: SPRING_DATASOURCE_URL
-        sync: false   # must be set manually in Render dashboard
+      # ── Neon PostgreSQL (REQUIRED — paste from neon.tech) ─
+      #
+      # From Neon Dashboard → Connection Details → select "JDBC" format:
+      #   jdbc:postgresql://ep-xxx.us-east-2.aws.neon.tech/neondb?sslmode=require
+      - key: DATABASE_URL
+        sync: false     # ← Render will prompt you to enter this during Blueprint setup
 
-      - key: SPRING_DATASOURCE_USERNAME
-        sync: false   # set in dashboard (e.g. "neondb_owner")
+      # From Neon Dashboard → Connection Details → Username field
+      - key: DB_USERNAME
+        sync: false     # ← e.g. "neondb_owner"
 
-      - key: SPRING_DATASOURCE_PASSWORD
-        sync: false   # set in dashboard (your Neon DB password)
+      # From Neon Dashboard → Connection Details → Password field
+      - key: DB_PASSWORD
+        sync: false     # ← your Neon DB password
 
-      # --- Security ---
-      # Comma-separated API keys for X-API-Key authentication.
-      # Generate with: openssl rand -hex 16 | xargs echo "rca_"
+      # ── API Key auth ─────────────────────────────────────
+      # Used as X-API-Key header in all API calls.
+      # Generate one: openssl rand -hex 16 → prefix with "rca_"
       - key: ROOTCAUSE_API_KEYS
-        sync: false   # set in dashboard
+        sync: false     # ← e.g. "rca_92d6c92615c849759e0cc8523e8fc567"
 
-      # --- CORS ---
-      # After deploying frontend to Vercel, set this to your Vercel URL.
-      # e.g. https://rootcause-suggester.vercel.app
+      # ── CORS (update after frontend deploy) ──────────────
+      # After deploying to Netlify, update this value to your Netlify URL:
+      #   https://rootcause-suggester.netlify.app
+      # You can set it now and redeploy, or update it in the Render dashboard later.
       - key: CORS_ALLOWED_ORIGINS
-        value: "https://localhost:3001"   # update after Vercel deploy
+        value: "*"      # Permissive default; tighten to your Netlify URL after deploy
 
-      # --- Optional integrations ---
+      # ── Optional: CI integrations ─────────────────────────
       - key: GITLAB_WEBHOOK_SECRET
-        value: change-me
+        value: change-me-in-dashboard
       - key: GITLAB_PRIVATE_TOKEN
         value: ""
+
       - key: GITHUB_WEBHOOK_SECRET
-        value: change-me
+        value: change-me-in-dashboard
       - key: GITHUB_TOKEN
         value: ""
+
       - key: JENKINS_WEBHOOK_SECRET
         value: ""
