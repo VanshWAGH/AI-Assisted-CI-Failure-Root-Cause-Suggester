@@ -1,23 +1,32 @@
 # Docker profile — overrides applied when SPRING_PROFILES_ACTIVE=docker
-# All secrets come from environment variables injected by Docker Compose / Render Blueprint.
+# All secrets injected by Docker Compose or Render Blueprint.
 #
-# ── Neon connection string (simplest setup) ─────────────────────────────────
-# Neon gives you ONE connection string, e.g.:
-#   postgresql://neondb_owner:abc123@ep-cool-name-123.us-east-2.aws.neon.tech/neondb?sslmode=require
+# ── Neon: ONE connection string ──────────────────────────────────────────────
+# In Render Blueprint you only need to paste ONE value: DATABASE_URL
 #
-# Set DATABASE_URL to that value in Render Blueprint.
-# This profile converts it automatically to the JDBC format Spring Boot expects.
-# ---------------------------------------------------------------------------
+# Where to get it:
+#   neon.tech → your project → Dashboard → Connection Details
+#   → Change format dropdown to "JDBC" → Copy the string. It looks like:
+#
+#   jdbc:postgresql://ep-xxx.us-east-2.aws.neon.tech/neondb?user=neondb_owner&password=abc123&sslmode=require
+#
+# The JDBC URL already contains user + password as query params.
+# We do NOT set spring.datasource.username / password here so that
+# HikariCP reads them directly from the URL — no extra vars needed!
+# ─────────────────────────────────────────────────────────────────────────────
 
 spring:
   datasource:
-    # If DATABASE_URL is set (Neon format), use it. Otherwise fall back to separate vars.
-    url: ${DATABASE_URL:${SPRING_DATASOURCE_URL:jdbc:postgresql://postgres:5432/rootcause}}
-    username: ${DB_USERNAME:${SPRING_DATASOURCE_USERNAME:rootcause}}
-    password: ${DB_PASSWORD:${SPRING_DATASOURCE_PASSWORD:rootcause_secret}}
+    # Paste the full Neon JDBC URL (with ?user=...&password=...&sslmode=require)
+    # Local Docker fallback uses the docker-compose postgres service.
+    url: ${DATABASE_URL:jdbc:postgresql://postgres:5432/rootcause}
+    # username / password intentionally omitted — read from URL query params.
+    # Docker Compose local fallback: override via SPRING_DATASOURCE_USERNAME/PASSWORD.
+    username: ${SPRING_DATASOURCE_USERNAME:}
+    password: ${SPRING_DATASOURCE_PASSWORD:}
     driver-class-name: org.postgresql.Driver
     hikari:
-      # Neon serverless wakes up on first connection — allow extra time
+      # Allow Neon serverless to wake up on cold start
       connection-timeout: 60000
       initialization-fail-timeout: 120000
 
@@ -39,7 +48,6 @@ rootcause:
   api:
     keys: ${ROOTCAUSE_API_KEYS:}
 
-# CORS: comma-separated list of allowed origins.
-# Set CORS_ALLOWED_ORIGINS to your Netlify/Vercel URL after frontend deploy.
+# CORS — set CORS_ALLOWED_ORIGINS to your Netlify URL after frontend deploy.
 cors:
   allowed-origins: ${CORS_ALLOWED_ORIGINS:http://localhost:5173,http://localhost:3001,http://localhost:3000}

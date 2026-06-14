@@ -3,20 +3,28 @@
 #  AI-Assisted CI-Failure Root-Cause Suggester
 # ============================================================
 #
-#  ONE-CLICK DEPLOY:
-#  1. Go to https://dashboard.render.com/blueprints
-#  2. Click "New Blueprint Instance"
-#  3. Connect your GitHub repo → Render reads this file
-#  4. Fill in the 4 secret values Render asks for (marked sync:false below)
-#  5. Click "Apply" — Render builds and deploys automatically
+#  ONE-CLICK DEPLOY STEPS:
 #
-#  DATABASE (Neon — free forever):
-#  Before clicking Apply:
-#   a) Create free account at https://neon.tech
-#   b) Create a project → go to Dashboard → Connection Details
-#   c) Switch format to "JDBC" → copy the connection string:
-#      jdbc:postgresql://ep-xxx.region.aws.neon.tech/neondb?sslmode=require
-#   d) Also copy the Username and Password shown below the URL
+#  1. Get your Neon connection string (ONE string, takes 2 min):
+#       a) Sign up at https://neon.tech (free, no credit card)
+#       b) Create a project → Dashboard → Connection Details
+#       c) Change the format dropdown from "psql" to "JDBC"
+#       d) Copy the string — it looks like:
+#          jdbc:postgresql://ep-xxx.us-east-2.aws.neon.tech/neondb?user=neondb_owner&password=abc123&sslmode=require
+#
+#  2. Deploy via Blueprint (takes 5 min):
+#       a) Go to https://dashboard.render.com/blueprints
+#       b) Click "New Blueprint Instance"
+#       c) Connect repo: VanshWAGH/AI-Assisted-CI-Failure-Root-Cause-Suggester
+#       d) Render shows 2 prompts — paste your values:
+#             DATABASE_URL      →  (paste the Neon JDBC string from step 1)
+#             ROOTCAUSE_API_KEYS → rca_92d6c92615c849759e0cc8523e8fc567
+#       e) Click "Apply" — Render builds & deploys automatically (~5 min)
+#
+#  3. Deploy frontend to Netlify (1 min — drag & drop):
+#       a) Run: cd frontend && npm run build
+#       b) Go to https://app.netlify.com/drop
+#       c) Drag the frontend/dist folder → live instantly!
 # ============================================================
 
 services:
@@ -27,18 +35,10 @@ services:
     runtime: docker
     dockerfilePath: ./docker/Dockerfile
     dockerContext: .
-    plan: free                     # Free tier — sleeps after 15 min idle
-
-    region: oregon                 # Options: oregon, frankfurt, singapore, ohio
+    plan: free                     # Free tier (sleeps after 15 min idle)
+    region: oregon
 
     healthCheckPath: /actuator/health/readiness
-
-    # Autoscaling is not available on free tier
-    scaling:
-      minInstances: 1
-      maxInstances: 1
-      targetMemoryPercent: 80
-      targetCPUPercent: 80
 
     envVars:
 
@@ -46,44 +46,31 @@ services:
       - key: SPRING_PROFILES_ACTIVE
         value: docker
 
-      # ── Neon PostgreSQL (REQUIRED — paste from neon.tech) ─
-      #
-      # From Neon Dashboard → Connection Details → select "JDBC" format:
-      #   jdbc:postgresql://ep-xxx.us-east-2.aws.neon.tech/neondb?sslmode=require
+      # ── Neon connection string ───────────────────────────
+      # Paste the JDBC format URL from neon.tech:
+      # Dashboard → Connection Details → format: JDBC
+      # jdbc:postgresql://ep-xxx.aws.neon.tech/neondb?user=xxx&password=xxx&sslmode=require
       - key: DATABASE_URL
-        sync: false     # ← Render will prompt you to enter this during Blueprint setup
+        sync: false          # ← Render will prompt you to enter this
 
-      # From Neon Dashboard → Connection Details → Username field
-      - key: DB_USERNAME
-        sync: false     # ← e.g. "neondb_owner"
-
-      # From Neon Dashboard → Connection Details → Password field
-      - key: DB_PASSWORD
-        sync: false     # ← your Neon DB password
-
-      # ── API Key auth ─────────────────────────────────────
-      # Used as X-API-Key header in all API calls.
-      # Generate one: openssl rand -hex 16 → prefix with "rca_"
+      # ── API key for X-API-Key authentication ─────────────
       - key: ROOTCAUSE_API_KEYS
-        sync: false     # ← e.g. "rca_92d6c92615c849759e0cc8523e8fc567"
+        sync: false          # ← e.g. rca_92d6c92615c849759e0cc8523e8fc567
 
-      # ── CORS (update after frontend deploy) ──────────────
-      # After deploying to Netlify, update this value to your Netlify URL:
-      #   https://rootcause-suggester.netlify.app
-      # You can set it now and redeploy, or update it in the Render dashboard later.
+      # ── CORS (update to your Netlify URL after deploy) ───
+      # After frontend is on Netlify, change this to:
+      #   https://your-site-name.netlify.app
       - key: CORS_ALLOWED_ORIGINS
-        value: "*"      # Permissive default; tighten to your Netlify URL after deploy
+        value: "*"
 
-      # ── Optional: CI integrations ─────────────────────────
+      # ── Optional CI integrations (leave blank if unused) ─
       - key: GITLAB_WEBHOOK_SECRET
-        value: change-me-in-dashboard
+        value: ""
       - key: GITLAB_PRIVATE_TOKEN
         value: ""
-
       - key: GITHUB_WEBHOOK_SECRET
-        value: change-me-in-dashboard
+        value: ""
       - key: GITHUB_TOKEN
         value: ""
-
       - key: JENKINS_WEBHOOK_SECRET
         value: ""
